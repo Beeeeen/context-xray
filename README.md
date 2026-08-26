@@ -115,7 +115,12 @@ for (const w of weights) console.log(w.spec.name, w.taxTokens)
 
 ## See also
 
-[**mcp-probe**](https://github.com/Beeeeen/mcp-probe) — the other half of this toolchain: conformance and robustness tests for MCP servers, built to run in CI. context-xray tells you what a server *costs*; mcp-probe tells you whether it *works*.
+The rest of the toolchain, built on the same zero-dependency MCP client:
+
+- [**mcp-wtf**](https://github.com/Beeeeen/mcp-wtf) — your MCP server won't connect; find out why in 10 seconds.
+- [**mcp-probe**](https://github.com/Beeeeen/mcp-probe) — conformance and robustness tests for MCP servers, built to run in CI.
+
+mcp-wtf answers "why won't it connect", context-xray answers "what is it costing me", mcp-probe answers "will it break my users".
 
 ## License
 
