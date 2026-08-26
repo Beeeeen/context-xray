@@ -58,5 +58,6 @@
   "homepage": "https://github.com/Beeeeen/context-xray#readme",
   "bugs": {
     "url": "https://github.com/Beeeeen/context-xray/issues"
-  }
+  },
+  "author": "Ben Yang <ben@yangjiawei.com>"
 }
