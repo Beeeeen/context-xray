@@ -1,0 +1,29 @@
+{
+  "name": "context-xray",
+  "version": "0.1.0",
+  "description": "See what your MCP servers cost you. Measures the context-window tokens every configured MCP server injects into each request - before you type a word - across Claude Desktop, Claude Code, Cursor and VS Code. Zero dependencies.",
+  "keywords": [
+    "mcp", "model-context-protocol", "mcp-server", "context-window", "token-usage",
+    "token-cost", "tokens", "context", "claude", "claude-code", "cursor", "llm",
+    "ai-agents", "cost", "audit", "cli", "anthropic"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": { "context-xray": "dist/cli.js" },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
