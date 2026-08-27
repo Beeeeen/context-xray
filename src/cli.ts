@@ -1,19 +1,21 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { discover } from './discover.js'
+import { discoverStatics, staticTotal } from './statics.js'
+import { diffReports, renderDiff } from './diff.js'
 import { weighAll } from './weigh.js'
 import { renderTerminal } from './report/terminal.js'
 import type { ServerSpec, XrayOptions, XrayReport } from './types.js'
 
-const VERSION = '0.1.0'
+const VERSION = '0.2.0'
 
 const HELP = `
   context-xray ${VERSION}
-  See what your MCP servers cost you: the context-window tokens they add to
-  every single request, before you type a word.
+  See what your agent setup costs you: the context-window tokens your MCP
+  servers and instruction files add to every request, before you type a word.
 
   USAGE
-    context-xray                        find and weigh every configured server
+    context-xray                        find and weigh everything configured
     context-xray --config <file>        weigh the servers in one config file
     context-xray --server <name>        only the named server(s); repeatable
     context-xray -- <command> [...]     weigh one stdio server directly
@@ -21,7 +23,13 @@ const HELP = `
 
   OUTPUT
     --json                  machine-readable report on stdout
+    --save <file>           also write the JSON report to a file
     --top <n>               tools to list per server (default 3)
+    --no-static             skip CLAUDE.md / rules / skills weighing
+
+  CI
+    --budget <tokens>       exit 3 when the per-request total exceeds this
+    --diff <file>           compare against a saved --json/--save report
 
   MEASUREMENT
     --precise               use the free Anthropic count_tokens API for exact
@@ -34,12 +42,19 @@ const HELP = `
     --requests-per-day <n>  assumed request volume (default 200)
     --price <usd>           $ per million input tokens (default 3.00)
 
-  Configs searched: Claude Desktop, Claude Code (~/.claude.json and ./.mcp.json),
-  Cursor, Windsurf, VS Code. Servers appearing in several hosts are measured once.
+  EXIT CODES
+    0 all measured   1 some servers failed   2 usage error   3 over budget
+
+  Configs searched: Claude Desktop, Claude Code, Cursor, Windsurf, VS Code,
+  Zed, Cline, Roo Code, Gemini CLI, Codex CLI. Servers appearing in several
+  hosts are measured once. Instruction files weighed: CLAUDE.md, AGENTS.md,
+  GEMINI.md, .cursorrules, .cursor/rules, .windsurfrules,
+  copilot-instructions.md, and the Claude Code skills listing.
 
   context-xray never calls your tools. It connects, reads the tool list, and
   disconnects. Environment values from your configs are passed to the servers
-  they belong to and are never printed.
+  they belong to and are never printed. Instruction files are read locally and
+  only their token weight is reported.
 `
 
 interface Parsed {
@@ -51,6 +66,10 @@ interface Parsed {
   direct?: ServerSpec
   help: boolean
   version: boolean
+  budget?: number
+  diffAgainst?: string
+  saveTo?: string
+  noStatic: boolean
   error?: string
 }
 
@@ -70,6 +89,7 @@ function parseArgs(argv: string[]): Parsed {
     serverFilter: [],
     help: false,
     version: false,
+    noStatic: false,
   }
   let url: string | null = null
   let headers: Record<string, string> = {}
@@ -104,9 +124,26 @@ function parseArgs(argv: string[]): Parsed {
       case '--json':
         out.json = true
         break
+      case '--no-static':
+        out.noStatic = true
+        break
       case '--precise':
         out.options.precise = true
         break
+      case '--diff':
+        out.diffAgainst = next()
+        if (!out.diffAgainst) return { ...out, error: '--diff needs the path of a saved --json report' }
+        break
+      case '--save':
+        out.saveTo = next()
+        if (!out.saveTo) return { ...out, error: '--save needs a file path' }
+        break
+      case '--budget': {
+        const v = num('--budget')
+        if (v === null) return out
+        out.budget = Math.floor(v)
+        break
+      }
       case '--config':
         out.config = next()
         break
@@ -220,23 +257,58 @@ async function main(): Promise<void> {
   const t0 = Date.now()
   const servers = await weighAll(specs, parsed.options)
 
+  // Instruction files only belong to the machine-wide audit; pointing the
+  // tool at one server or one config is a question about that server alone.
+  const staticFiles =
+    parsed.direct || parsed.config || parsed.noStatic ? [] : discoverStatics()
+  const staticTokens = staticTotal(staticFiles)
+
   const measured = servers.filter((s) => s.ok)
   const methods = new Set(measured.map((s) => s.method))
+  const totalTaxTokens = measured.reduce((sum, s) => sum + s.taxTokens, 0)
   const report: XrayReport = {
     servers,
-    totalTaxTokens: measured.reduce((sum, s) => sum + s.taxTokens, 0),
+    totalTaxTokens,
+    staticFiles,
+    staticTokens,
+    grandTotalTokens: totalTaxTokens + staticTokens,
     method: methods.size === 1 ? (methods.has('counted') ? 'counted' : 'estimate') : methods.size === 0 ? 'estimate' : 'mixed',
     options: { requestsPerDay: parsed.options.requestsPerDay, pricePerMTok: parsed.options.pricePerMTok },
     configsSearched,
     durationMs: Date.now() - t0,
+    xrayVersion: VERSION,
   }
 
-  if (parsed.json) {
+  if (parsed.saveTo) {
+    writeFileSync(parsed.saveTo, JSON.stringify(report, null, 2) + '\n')
+  }
+
+  if (parsed.diffAgainst) {
+    let baseline: XrayReport
+    try {
+      baseline = JSON.parse(readFileSync(parsed.diffAgainst, 'utf8')) as XrayReport
+      if (!Array.isArray(baseline.servers) || typeof baseline.totalTaxTokens !== 'number') {
+        throw new Error('not a context-xray report')
+      }
+    } catch (e) {
+      process.stderr.write(`context-xray: cannot read baseline ${parsed.diffAgainst}: ${(e as Error).message}\n`)
+      process.exit(2)
+    }
+    const diff = diffReports(baseline, report)
+    process.stdout.write(parsed.json ? JSON.stringify(diff, null, 2) + '\n' : renderDiff(diff))
+  } else if (parsed.json) {
     process.stdout.write(JSON.stringify(report, null, 2) + '\n')
   } else {
     process.stdout.write(renderTerminal(report, parsed.top))
   }
-  // 0 when everything asked for was measured; 1 when some servers failed.
+
+  // 0 all measured; 1 some servers failed; 3 over budget (the CI signal wins).
+  if (parsed.budget !== undefined && report.grandTotalTokens > parsed.budget) {
+    process.stderr.write(
+      `context-xray: over budget -- ${report.grandTotalTokens.toLocaleString('en-US')} tokens per request against a budget of ${parsed.budget.toLocaleString('en-US')}\n`,
+    )
+    process.exit(3)
+  }
   process.exit(measured.length === servers.length ? 0 : 1)
 }
 

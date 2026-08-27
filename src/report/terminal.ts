@@ -54,11 +54,14 @@ export function renderTerminal(report: XrayReport, top = 3): string {
   const broken = report.servers.filter((s) => !s.ok)
   const ranked = [...measured].sort((a, b) => b.taxTokens - a.taxTokens)
   const total = report.totalTaxTokens
+  const statics = report.staticFiles ?? []
+  const staticTokens = report.staticTokens ?? 0
+  const grand = report.grandTotalTokens ?? total + staticTokens
   const approx = report.method === 'counted' ? '' : '~'
 
   lines.push('')
   lines.push(
-    `  ${c.bold}context-xray${c.reset}  your MCP servers add ${c.bold}${approx}${fmt(total)} tokens${c.reset} to every request`,
+    `  ${c.bold}context-xray${c.reset}  your ${staticTokens > 0 ? 'agent setup adds' : 'MCP servers add'} ${c.bold}${approx}${fmt(grand)} tokens${c.reset} to every request`,
   )
   const cfgs = report.configsSearched.length
   lines.push(
@@ -104,14 +107,28 @@ export function renderTerminal(report: XrayReport, top = 3): string {
   }
   if (broken.length) lines.push('')
 
+  // The other half of the bill: files the hosts inject without any MCP.
+  if (statics.length > 0) {
+    lines.push(`  ${c.bold}agent files${c.reset}  ${c.gray}instruction files your editors and CLIs load on their own${c.reset}`)
+    for (const f of statics) {
+      const marker = f.alwaysLoaded ? '' : `${c.gray} (not counted)${c.reset}`
+      lines.push(
+        `    ${padLeft(`~${fmt(f.tokens)}`, 8)} tok  ${pad(f.label.slice(0, 34), 36)}${c.gray}${f.host}${f.note ? ` -- ${f.note}` : ''}${c.reset}${marker}`,
+      )
+    }
+    lines.push('')
+  }
+
   // The verdict block: window share and money.
-  const windowShare = total / CONTEXT_WINDOW
-  const monthlyTokens = total * report.options.requestsPerDay * 30
+  const windowShare = grand / CONTEXT_WINDOW
+  const monthlyTokens = grand * report.options.requestsPerDay * 30
   const monthlyUsd = (monthlyTokens / 1_000_000) * report.options.pricePerMTok
+  const breakdown =
+    staticTokens > 0 ? ` ${c.gray}(MCP ${approx}${fmt(total)} + agent files ~${fmt(staticTokens)})${c.reset}` : ''
 
   lines.push(`  ${c.gray}${'-'.repeat(72)}${c.reset}`)
   lines.push(
-    `  ${c.bold}${approx}${fmt(total)} tokens${c.reset} on every request = ${c.bold}${(windowShare * 100).toFixed(1)}%${c.reset} of a ${fmt(CONTEXT_WINDOW)} context window, before you type a word`,
+    `  ${c.bold}${approx}${fmt(grand)} tokens${c.reset} on every request${breakdown} = ${c.bold}${(windowShare * 100).toFixed(1)}%${c.reset} of a ${fmt(CONTEXT_WINDOW)} context window, before you type a word`,
   )
   lines.push(
     `  ${c.gray}at ${fmt(report.options.requestsPerDay)} requests/day and $${report.options.pricePerMTok.toFixed(2)}/MTok input: ${c.reset}${c.bold}${approx}$${monthlyUsd.toFixed(monthlyUsd >= 100 ? 0 : 2)}/month${c.reset}${c.gray} of uncached input spend${c.reset}`,
@@ -122,7 +139,7 @@ export function renderTerminal(report: XrayReport, top = 3): string {
 
   // Advice only when there is something to act on.
   const advice: string[] = []
-  if (windowShare > 0.1 && ranked.length > 1) {
+  if (total / CONTEXT_WINDOW > 0.1 && ranked.length > 1) {
     advice.push(
       `over 10% of the window goes to tool definitions -- disable the servers you are not using today (${ranked[0]!.spec.name} alone is ${Math.round(((ranked[0]!.taxTokens) / total) * 100)}%)`,
     )

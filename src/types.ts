@@ -80,12 +80,65 @@ export interface XrayOptions {
   concurrency: number
 }
 
+/**
+ * One instruction file an agent host loads into context on its own — CLAUDE.md,
+ * .cursorrules, AGENTS.md, the skills listing. The other half of the bill.
+ */
+export interface StaticFile {
+  path: string
+  /** Display name, e.g. "CLAUDE.md (project)". */
+  label: string
+  /** Which host reads it: "Claude Code", "Cursor", ... */
+  host: string
+  kind: 'instructions' | 'rules' | 'skills-listing'
+  tokens: number
+  /**
+   * False when the file only loads conditionally (glob-scoped Cursor rules,
+   * agent-requested rules). Conditional files are reported but kept out of the
+   * every-request total.
+   */
+  alwaysLoaded: boolean
+  /** Extra context, e.g. "12 skills; bodies ~8,400 tok load on demand". */
+  note?: string
+}
+
 export interface XrayReport {
   servers: ServerWeight[]
   /** Sum of taxTokens across servers that measured OK. */
   totalTaxTokens: number
+  /** Instruction files found on this machine / project. */
+  staticFiles: StaticFile[]
+  /** Sum of tokens across always-loaded static files. */
+  staticTokens: number
+  /** totalTaxTokens + staticTokens: the whole per-request context bill. */
+  grandTotalTokens: number
   method: 'estimate' | 'counted' | 'mixed'
   options: Pick<XrayOptions, 'requestsPerDay' | 'pricePerMTok'>
   configsSearched: string[]
   durationMs: number
+  /** Report format version, for --diff across versions. */
+  xrayVersion: string
+}
+
+/** What changed between two reports (--diff). */
+export interface ServerDelta {
+  name: string
+  change: 'added' | 'removed' | 'changed'
+  beforeTokens: number
+  afterTokens: number
+  beforeTools: number
+  afterTools: number
+  /** Tool names present on only one side, or whose weight moved. */
+  toolNotes: string[]
+}
+
+export interface XrayDiff {
+  beforeTotal: number
+  afterTotal: number
+  beforeStatic: number
+  afterStatic: number
+  beforeGrand: number
+  afterGrand: number
+  servers: ServerDelta[]
+  staticNotes: string[]
 }
