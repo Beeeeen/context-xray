@@ -1,6 +1,6 @@
 {
   "name": "context-xray",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "See what your agent setup costs you. Weighs the context-window tokens your MCP servers, CLAUDE.md, rules files and skills add to every request - before you type a word - across Claude Desktop, Claude Code, Cursor, Windsurf, VS Code, Zed, Cline, Roo Code, Gemini CLI and Codex CLI. Token budget gate and diff for CI. Zero dependencies.",
   "keywords": [
     "mcp",
